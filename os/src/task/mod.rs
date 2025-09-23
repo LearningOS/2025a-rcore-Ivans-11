@@ -17,6 +17,7 @@ mod task;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::mm::{VirtAddr, VirtPageNum};
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
@@ -153,6 +154,34 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// Add syscall number of current task
+    fn add_syscall_num(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_num.add_syscall_num(syscall_id);
+    }
+
+    /// Get syscall number of current task
+    fn get_syscall_num(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_num.get_syscall_num(syscall_id)
+    }
+
+    /// insert framed area in memory set
+    fn insert_framed_area(&self, start: VirtAddr, end: VirtAddr, perm: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].insert_framed_area(start, end, perm);
+    }
+
+    /// remove framed area in memory set
+    fn remove_framed_area(&self, start: VirtPageNum, end: VirtPageNum) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].remove_framed_area(start, end)
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +230,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Add syscall number of current task
+pub fn add_syscall_num(syscall_id: usize) {
+    TASK_MANAGER.add_syscall_num(syscall_id);
+}
+
+/// Get syscall number of current task
+pub fn get_syscall_num(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_syscall_num(syscall_id)
+}
+
+/// insert framed area in memory set
+pub fn insert_framed_area(start: VirtAddr, end: VirtAddr, perm: usize) {
+    TASK_MANAGER.insert_framed_area(start, end, perm);
+}
+
+/// remove framed area in memory set
+pub fn remove_framed_area(start: VirtPageNum, end: VirtPageNum) -> bool {
+    TASK_MANAGER.remove_framed_area(start, end)
 }

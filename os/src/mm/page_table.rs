@@ -70,6 +70,10 @@ impl PageTableEntry {
     pub fn executable(&self) -> bool {
         (self.flags() & PTEFlags::X) != PTEFlags::empty()
     }
+    /// The page pointered by page table entry is user?
+    pub fn user(&self) -> bool {
+        (self.flags() & PTEFlags::U)!= PTEFlags::empty()
+    }
 }
 
 /// page table structure
@@ -155,6 +159,24 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+    /// test whether a vpn is valid and readable
+    pub fn is_readable(&self, vpn: VirtPageNum) -> bool {
+        self.find_pte(vpn)
+            .map(|pte| pte.user() && pte.is_valid() && pte.readable())
+            .unwrap_or(false)
+    }
+    /// test whether a vpn is valid and writable
+    pub fn is_writable(&self, vpn: VirtPageNum) -> bool {
+        self.find_pte(vpn)
+           .map(|pte| pte.user() && pte.is_valid() && pte.writable())
+           .unwrap_or(false)
+    }
+    /// test whether a vpn has not allocated
+    pub fn is_empty(&self, vpn: VirtPageNum) -> bool {
+        self.find_pte(vpn)
+          .map(|pte| !pte.is_valid())
+          .unwrap_or(true)
+    }
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
@@ -178,4 +200,30 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// test whether a ptr: *const u8 is valid and readable
+pub fn is_readable(token: usize, ptr: *const u8) -> bool {
+    let page_table = PageTable::from_token(token);
+    let vpn = VirtAddr::from(ptr as usize).floor();
+    if !page_table.is_readable(vpn) {
+        return false;
+    }
+    true
+}
+
+/// test whether a ptr: *const u8 is valid and writable
+pub fn is_writable(token: usize, ptr: *const u8) -> bool {
+    let page_table = PageTable::from_token(token);
+    let vpn = VirtAddr::from(ptr as usize).floor();
+    if !page_table.is_writable(vpn) {
+        return false;
+    }
+    true
+}
+
+/// test whether a ptr: *const u8 is valid and writable
+pub fn is_empty(token: usize, vpn: VirtPageNum) -> bool {
+    let page_table = PageTable::from_token(token);
+    page_table.is_empty(vpn)
 }

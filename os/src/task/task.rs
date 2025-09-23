@@ -2,9 +2,10 @@
 use super::TaskContext;
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{
-    kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
+    kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, VirtPageNum,
 };
 use crate::trap::{trap_handler, TrapContext};
+use alloc::collections::BTreeMap;
 
 /// The task control block (TCB) of a task.
 pub struct TaskControlBlock {
@@ -28,6 +29,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The task syscall number
+    pub task_syscall_num: TaskSyscallNum,
 }
 
 impl TaskControlBlock {
@@ -63,6 +67,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            task_syscall_num: TaskSyscallNum::new(),
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -96,6 +101,16 @@ impl TaskControlBlock {
             None
         }
     }
+
+    /// insert framed area in memory set
+    pub fn insert_framed_area(&mut self, start: VirtAddr, end: VirtAddr, perm: usize) {
+        self.memory_set.insert_framed_area(start, end, MapPermission::from_bits_truncate(perm as u8));
+    }
+
+    /// remove framed area in memory set
+    pub fn remove_framed_area(&mut self, start: VirtPageNum, end: VirtPageNum) -> bool {
+        self.memory_set.remove_framed_area(start, end)
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -109,4 +124,36 @@ pub enum TaskStatus {
     Running,
     /// exited
     Exited,
+}
+
+/// The syscall number of a task
+#[derive(Clone)]
+pub struct TaskSyscallNum {
+    /// syscall number
+    pub nums: BTreeMap<usize, usize>,
+}
+
+impl TaskSyscallNum {
+    /// create a new TaskSyscallNum
+    pub fn new() -> Self {
+        Self {
+            nums: BTreeMap::new(),
+        }
+    }
+    /// add a syscall number
+    pub fn add_syscall_num(&mut self, syscall_id: usize) {
+        if self.nums.contains_key(&syscall_id) {
+            self.nums.insert(syscall_id, self.nums[&syscall_id] + 1);
+        } else {
+            self.nums.insert(syscall_id, 1);
+        }
+    }
+    /// get the syscall number
+    pub fn get_syscall_num(&self, syscall_id: usize) -> usize {
+        if self.nums.contains_key(&syscall_id) {
+            self.nums[&syscall_id]
+        } else {
+            0
+        }
+    }
 }
