@@ -66,6 +66,18 @@ impl MemorySet {
             None,
         );
     }
+    /// Remove the area of memory.
+    pub fn remove_framed_area(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> bool {
+        if let Some(index) = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn
+        }) {
+            let mut removed = self.areas.remove(index);
+            removed.unmap(&mut self.page_table);
+            true
+        } else {
+            false
+        }
+    }
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self

@@ -4,12 +4,14 @@ use alloc::sync::Arc;
 
 use crate::{
     fs::{open_file, OpenFlags},
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str, translated_byte_buffer, VPNRange, VirtAddr, is_empty, frame_remain_num},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,
     },
+    timer::get_time_us,
 };
+use core::ptr::copy;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -107,28 +109,79 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+    let us = get_time_us();
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let src = &time_val as *const TimeVal as *const u8;
+    let buffers = translated_byte_buffer(current_user_token(), _ts as *const u8, core::mem::size_of::<TimeVal>());
+    let mut start = 0;
+    unsafe {
+        for buffer in buffers {
+            copy(src.add(start), buffer.as_mut_ptr(), buffer.len());
+            start += buffer.len();
+        }
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_mmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let start = VirtAddr::from(_start);
+    if !start.aligned() {
+        return -1;
+    }
+    if _port & !7 != 0 || _port & 7 == 0 {
+        return -1;
+    }
+    let end = VirtAddr::from(_start + _len);
+    let start_vpn = start.floor();
+    let end_vpn = end.ceil();
+
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        if !is_empty(current_user_token(), vpn.into()) {
+            return -1;
+        }
+    }
+    if frame_remain_num() < (end_vpn.0 - start_vpn.0) {
+        return -1;
+    }
+    current_task().unwrap().insert_framed_area(start, end, _port << 1 | 16);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_munmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let start = VirtAddr::from(_start);
+    if!start.aligned() {
+        return -1;
+    }
+    let end = VirtAddr::from(_start + _len);
+    let start_vpn = start.floor();
+    let end_vpn = end.ceil();
+
+    for vpn in VPNRange::new(start_vpn, end_vpn) {
+        if is_empty(current_user_token(), vpn.into()) {
+            return -1;
+        }
+    }
+    if current_task().unwrap().remove_framed_area(start_vpn, end_vpn) {
+        0
+    } else {
+        -1
+    }
 }
 
 /// change data segment size
@@ -145,17 +198,32 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
+        let task = current_task().unwrap();
+        let new_task = task.spawn(all_data.as_slice());
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        new_pid as isize
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if _prio < 2 {
+        return -1;
+    }
+    current_task().unwrap().set_priority(_prio as u64);
+    _prio
 }

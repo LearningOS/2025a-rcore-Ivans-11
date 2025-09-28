@@ -156,6 +156,12 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+    /// test whether a vpn has not allocated
+    pub fn is_empty(&self, vpn: VirtPageNum) -> bool {
+        self.find_pte(vpn)
+          .map(|pte| !pte.is_valid())
+          .unwrap_or(true)
+    }
 }
 
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
@@ -217,6 +223,12 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .translate_va(VirtAddr::from(va))
         .unwrap()
         .get_mut()
+}
+
+/// test whether a ptr: *const u8 is valid and writable
+pub fn is_empty(token: usize, vpn: VirtPageNum) -> bool {
+    let page_table = PageTable::from_token(token);
+    page_table.is_empty(vpn)
 }
 
 /// An abstraction over a buffer passed from user space to kernel space
