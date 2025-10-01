@@ -16,6 +16,7 @@ mod process;
 mod processor;
 mod signal;
 mod switch;
+mod detection;
 #[allow(clippy::module_inception)]
 mod task;
 
@@ -38,6 +39,7 @@ pub use processor::{
 };
 pub use signal::SignalFlags;
 pub use task::{TaskControlBlock, TaskStatus};
+pub use detection::DeadlockDetection;
 
 /// Make current task suspended and switch to the next task
 pub fn suspend_current_and_run_next() {
